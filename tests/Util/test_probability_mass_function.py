@@ -11,9 +11,8 @@ def constant_pmf(request):
     if request.param:
         return (ProbabilityMassFunction(items=[True, False], weights=[1, 0]),
                 request.param)
-    else:
-        return (ProbabilityMassFunction(items=[True, False], weights=[0, 1]),
-                request.param)
+    return (ProbabilityMassFunction(items=[True, False], weights=[0, 1]),
+            request.param)
 
 
 @pytest.fixture
@@ -49,7 +48,7 @@ def test_raises_exception_for_non_numeric_weight():
 
 
 def test_raises_exception_for_draw_from_empty_pmf(empty_pmf):
-    with pytest.raises(ValueError):
+    with pytest.raises(IndexError):
         _ = empty_pmf.draw_sample()
 
 

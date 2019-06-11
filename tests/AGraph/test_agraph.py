@@ -5,10 +5,13 @@ from collections import namedtuple
 import pytest
 import numpy as np
 
-from bingo.AGraph import AGraph
-from bingo.AGraph import Backend as py_backend
+from bingo.SymbolicRegression.AGraph import AGraph, Backend as py_backend
 
 AGraph.Backend = py_backend
+EVALUATE = "bingo.SymbolicRegression.AGraph.AGraph.Backend.evaluate"
+EVALUATE_WTIH_DERIV = ("bingo.SymbolicRegression.AGraph.AGraph.Backend."
+                       "evaluate_with_derivative")
+
 
 
 @pytest.fixture
@@ -89,7 +92,7 @@ def test_deep_copy_agraph(sample_agraph_1):
 
     assert agraph_copy.genetic_age == 10
     assert agraph_copy.command_array[1, 1] == 0
-    assert pytest.approx(agraph_copy._constants[0]) == 1.0
+    assert pytest.approx(agraph_copy.constants[0]) == 1.0
 
 
 def test_agraph_latex_print(expected_agraph_behavior):
@@ -99,7 +102,7 @@ def test_agraph_latex_print(expected_agraph_behavior):
 
 def test_agraph_console_print(expected_agraph_behavior):
     assert expected_agraph_behavior["console string"] == \
-           expected_agraph_behavior["agraph"].get_console_string()
+           expected_agraph_behavior["agraph"].__str__()
 
 
 def test_agraph_complexity(expected_agraph_behavior):
@@ -120,8 +123,8 @@ def test_agraph_stack_print(sample_agraph_1):
                    "(1) <= C_0 = 1.0\n" +\
                    "(2) <= (0) + (1)\n" +\
                    "(3) <= sin (2)\n" +\
-                   "(5) <= (3) + (1)\n"
-    assert sample_agraph_1.__str__() == expected_str
+                   "(4) <= (3) + (1)\n"
+    assert sample_agraph_1.get_stack_string() == expected_str
 
 
 def test_invalid_agraph_stack_print(invalid_agraph):
@@ -137,8 +140,8 @@ def test_invalid_agraph_stack_print(invalid_agraph):
                    "(1) <= C\n" +\
                    "(2) <= (0) + (1)\n" +\
                    "(3) <= sin (2)\n" +\
-                   "(5) <= (3) + (1)\n"
-    assert invalid_agraph.__str__() == expected_str
+                   "(4) <= (3) + (1)\n"
+    assert invalid_agraph.get_stack_string() == expected_str
 
 
 def test_evaluate_agraph(sample_agraph_1, sample_agraph_1_values):
@@ -149,34 +152,36 @@ def test_evaluate_agraph(sample_agraph_1, sample_agraph_1_values):
 
 def test_evaluate_agraph_x_gradient(sample_agraph_1, sample_agraph_1_values):
     f_of_x, df_dx = \
-        sample_agraph_1.evaluate_equation_with_x_gradient_at(sample_agraph_1_values.x)
+        sample_agraph_1.evaluate_equation_with_x_gradient_at(
+            sample_agraph_1_values.x)
     np.testing.assert_allclose(f_of_x, sample_agraph_1_values.f_of_x)
     np.testing.assert_allclose(df_dx, sample_agraph_1_values.grad_x)
 
 
 def test_evaluate_agraph_c_gradient(sample_agraph_1, sample_agraph_1_values):
-    f_of_x, df_dc = sample_agraph_1.evaluate_equation_with_local_opt_gradient_at(
-        sample_agraph_1_values.x)
+    f_of_x, df_dc = \
+        sample_agraph_1.evaluate_equation_with_local_opt_gradient_at(
+            sample_agraph_1_values.x)
     np.testing.assert_allclose(f_of_x, sample_agraph_1_values.f_of_x)
     np.testing.assert_allclose(df_dc, sample_agraph_1_values.grad_c)
 
 
 def test_raises_error_evaluate_invalid_agraph(invalid_agraph,
                                               sample_agraph_1_values):
-    with pytest.raises(RuntimeError):
+    with pytest.raises(IndexError):
         _ = invalid_agraph.evaluate_equation_at(sample_agraph_1_values.x)
 
 
 def test_raises_error_x_gradient_invalid_agraph(invalid_agraph,
                                                 sample_agraph_1_values):
-    with pytest.raises(RuntimeError):
+    with pytest.raises(IndexError):
         _ = invalid_agraph.evaluate_equation_with_x_gradient_at(
             sample_agraph_1_values.x)
 
 
 def test_raises_error_c_gradient_invalid_agraph(invalid_agraph,
                                                 sample_agraph_1_values):
-    with pytest.raises(RuntimeError):
+    with pytest.raises(IndexError):
         _ = invalid_agraph.evaluate_equation_with_local_opt_gradient_at(
             sample_agraph_1_values.x)
 
@@ -216,3 +221,39 @@ def test_setting_command_array_unsets_fitness(sample_agraph_1):
     assert sample_agraph_1.fit_set
     sample_agraph_1.command_array = np.ones((1, 3))
     assert not sample_agraph_1.fit_set
+
+
+def test_evaluate_overflow_exception(mocker,
+                                    sample_agraph_1,
+                                    sample_agraph_1_values):
+    mocker.patch(EVALUATE)
+    AGraph.Backend.evaluate.side_effect = OverflowError
+
+    values = sample_agraph_1.evaluate_equation_at(sample_agraph_1_values.x)
+    assert np.isnan(values).all()
+
+
+def test_evaluate_gradient_overflow_exception(mocker,
+                                              sample_agraph_1,
+                                              sample_agraph_1_values):
+    mocker.patch(EVALUATE_WTIH_DERIV)
+    AGraph.Backend.evaluate_with_derivative.side_effect = OverflowError
+
+    values = sample_agraph_1.evaluate_equation_with_x_gradient_at(
+        sample_agraph_1_values.x)
+    assert np.isnan(values).all()
+
+
+def test_evaluate_local_opt_gradient_overflow_exception(mocker,
+                                                        sample_agraph_1,
+                                                        sample_agraph_1_values):
+    mocker.patch(EVALUATE_WTIH_DERIV)
+    AGraph.Backend.evaluate_with_derivative.side_effect = OverflowError
+
+    values = sample_agraph_1.evaluate_equation_with_local_opt_gradient_at(
+        sample_agraph_1_values.x)
+    assert np.isnan(values).all()
+
+
+def test_distance_between_graphs(sample_agraph_1):
+    assert sample_agraph_1.distance(sample_agraph_1) == 0

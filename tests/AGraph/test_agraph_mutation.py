@@ -4,20 +4,40 @@
 import numpy as np
 import pytest
 
-from bingo.AGraph.AGraph import AGraph
-from bingo.AGraph.AgraphMutation import AGraphMutation
+import bingo.SymbolicRegression.AGraph.AGraph as AcyclicGraph
+from bingo.SymbolicRegression.AGraph.AGraph import AGraph
+from bingo.SymbolicRegression.AGraph.AGraphMutation import AGraphMutation
+from bingo.SymbolicRegression.AGraph.ComponentGenerator \
+    import ComponentGenerator
+
+NODE_TYPE = 0
+PARAM_1 = 1
+PARAM_2 = 2
 
 
 @pytest.fixture
 def terminal_only_agraph():
     test_graph = AGraph()
     test_graph.command_array = np.array([[0, 1, 3],  # X_0
-                                         [1, 1, 2],
+                                         [1, -1, -1],
                                          [3, 1, 1],
                                          [4, 0, 2],
                                          [0, 0, 0]], dtype=int)
     test_graph.genetic_age = 1
-    test_graph.set_local_optimization_params([1.0, 1.0])
+    test_graph.set_local_optimization_params([])
+    return test_graph
+
+
+@pytest.fixture
+def constant_only_agraph():
+    test_graph = AGraph()
+    test_graph.command_array = np.array([[0, 1, 3],  # 1.0
+                                         [1, -1, -1],
+                                         [3, 1, 1],
+                                         [4, 0, 2],
+                                         [1, 0, 0]], dtype=int)
+    test_graph.genetic_age = 1
+    test_graph.set_local_optimization_params([1.0])
     return test_graph
 
 
@@ -69,8 +89,14 @@ def test_single_point_mutations(mutation_parent, algo_index,
         child = mutation(mutation_parent)
         p_stack = mutation_parent.command_array
         c_stack = child.command_array
-        changed_commands = np.sum(np.max(p_stack != c_stack, axis=1))
-
+        changed_commands = 0
+        for p, c in zip(p_stack, c_stack):
+            if (p != c).any():
+                if p[0] != 1 or c[0] != 1:
+                    changed_commands += 1
+        if changed_commands != 1:
+            print("parent\n", p_stack)
+            print("child\n", c_stack)
         assert changed_commands == 1
 
 
@@ -153,3 +179,94 @@ def test_pruning_mutation_on_unprunable_agraph(terminal_only_agraph,
         p_stack = terminal_only_agraph.command_array
         c_stack = child.command_array
         np.testing.assert_array_equal(p_stack, c_stack)
+
+
+def test_mutation_creates_valid_parameters(sample_agraph_1):
+    comp_generator = ComponentGenerator(input_x_dimension=2,
+                                        num_initial_load_statements=2,
+                                        terminal_probability=0.4,
+                                        constant_probability=0.5)
+    for operator in range(2, 13):
+        comp_generator.add_operator(operator)
+    np.random.seed(0)
+    mutation = AGraphMutation(comp_generator,
+                              command_probability=0.0,
+                              node_probability=0.0,
+                              parameter_probability=1.0,
+                              prune_probability=0.0)
+    for _ in range(20):
+        child = mutation(sample_agraph_1)
+        for row, operation in enumerate(child.command_array):
+            if not AcyclicGraph.IS_TERMINAL_MAP[operation[NODE_TYPE]]:
+                assert operation[PARAM_1] < row
+                assert operation[PARAM_2] < row
+
+
+@pytest.mark.parametrize('manual_constants', [False, True])
+def test_param_mutation_constant_graph(constant_only_agraph,
+                                       manual_constants):
+    np.random.seed(10)
+    comp_generator = ComponentGenerator(input_x_dimension=2,
+        num_initial_load_statements=2,
+        terminal_probability=1.0,
+        constant_probability=1.0,
+        automatic_constant_optimization=not manual_constants)
+    mutation = AGraphMutation(comp_generator,
+                              command_probability=0.0,
+                              node_probability=0.0,
+                              parameter_probability=1.0,
+                              prune_probability=0.0)
+
+    child = mutation(constant_only_agraph)
+    p_stack = constant_only_agraph.command_array
+    c_stack = child.command_array
+    np.testing.assert_array_equal(p_stack, c_stack)
+
+    if manual_constants:
+        _assert_arrays_not_almost_equal(child.constants,
+                                        constant_only_agraph.constants)
+    else:
+        np.testing.assert_array_almost_equal(child.constants,
+                                             constant_only_agraph.constants)
+
+
+def _assert_arrays_not_almost_equal(array_1, array_2):
+    with pytest.raises(AssertionError):
+        np.testing.assert_array_almost_equal(array_1, array_2)
+
+
+@pytest.mark.parametrize("command_prob, node_prob", [(1.0, 0.), (0.0, 1.0)])
+def test_new_manual_constants_added(terminal_only_agraph,
+                                    command_prob, node_prob):
+    np.random.seed(0)
+    comp_generator = ComponentGenerator(input_x_dimension=2,
+                                        num_initial_load_statements=2,
+                                        terminal_probability=1.0,
+                                        constant_probability=1.0,
+                                        automatic_constant_optimization=False)
+    mutation = AGraphMutation(comp_generator,
+                              command_probability=command_prob,
+                              node_probability=node_prob,
+                              parameter_probability=0.0,
+                              prune_probability=0.0)
+    child = mutation(terminal_only_agraph)
+
+    assert child.num_constants == 1
+    assert len(child.constants) == 1
+
+
+def test_multiple_manual_constsnt_mutations_for_consistency():
+    np.random.seed(0)
+    test_graph = AGraph(manual_constants=True)
+    test_graph.command_array = np.array([[1, -1, -1],
+                                         [1, -1, -1],
+                                         [1, -1, -1],
+                                         [1, 0, 0]])
+    test_graph.set_local_optimization_params([1.0, ])
+    comp_generator = ComponentGenerator(input_x_dimension=2,
+                                        automatic_constant_optimization=False)
+    comp_generator.add_operator(2)
+    mutation = AGraphMutation(comp_generator)
+    for _ in range(20):
+        test_graph = mutation(test_graph)
+        assert test_graph.num_constants == len(test_graph.constants)

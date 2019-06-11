@@ -1,14 +1,13 @@
 # Ignoring some linting rules in tests
 # pylint: disable=redefined-outer-name
 # pylint: disable=missing-docstring
-
+import csv
 import timeit
 import numpy as np
 
-from bingo.AGraph import AGraph
-from bingo.AGraph.AGraphGenerator import AGraphGenerator
-from bingo.AGraph.ComponentGenerator import ComponentGenerator
-from bingo.AGraph import Backend as pyBackend
+from bingo.SymbolicRegression.AGraph import AGraph, Backend as pyBackend
+from bingo.SymbolicRegression.AGraph.AGraphGenerator import AGraphGenerator
+from bingo.SymbolicRegression.AGraph.ComponentGenerator import ComponentGenerator
 from bingocpp.build import bingocpp as cppBackend
 
 
@@ -45,8 +44,46 @@ def generate_random_x(size):
     return np.random.rand(size, 4)*10 - 5.0
 
 
+def write_stacks(test_agraph_list):
+    filename = '../bingocpp/app/test-agraph-stacks.csv'
+    with open(filename, mode='w+') as stack_file:
+        stack_file_writer = csv.writer(stack_file, delimiter=',')
+        for agraph in test_agraph_list:
+            stack = []
+            for row in agraph._command_array:
+                for i in np.nditer(row):
+                    stack.append(i)
+            stack_file_writer.writerow(stack)
+    stack_file.close()
+
+
+def write_constants(test_agraph_list):
+    filename = '../bingocpp/app/test-agraph-consts.csv'
+    with open(filename, mode='w+') as const_file:
+        const_file_writer = csv.writer(const_file, delimiter=',')
+        for agraph in test_agraph_list:
+            consts = agraph._constants
+            num_consts = len(consts)
+            consts = np.insert(consts, 0, num_consts, axis=0)
+            const_file_writer.writerow(consts)
+
+    const_file.close()
+
+
+def write_x_vals(test_x_vals):
+    filename = '../bingocpp/app/test-agraph-x-vals.csv'
+    with open(filename, mode='w+') as x_file:
+        x_file_writer = csv.writer(x_file, delimiter=',')
+        for row in test_x_vals:
+            x_file_writer.writerow(row)
+    x_file.close()
+
+
 TEST_AGRAPHS = generate_random_individuals(100, 128)
 TEST_X = generate_random_x(128)
+# write_stacks(TEST_AGRAPHS)
+# write_constants(TEST_AGRAPHS)
+# write_x_vals(TEST_X)
 
 
 def benchmark_evaluate():
