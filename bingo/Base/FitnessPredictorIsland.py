@@ -15,7 +15,7 @@ Lipson [1]_.
        736-749.
 """
 import logging
-from copy import copy
+from copy import copy, deepcopy
 import numpy as np
 from ..Util.ArgumentValidation import argument_validation
 from .Evaluation import Evaluation
@@ -30,6 +30,7 @@ from .FitnessPredictor import FitnessPredictorFitnessFunction, \
 LOGGER = logging.getLogger(__name__)
 
 
+# TODO add inherrited attributes in doc
 class FitnessPredictorIsland(Island):
     """An island utilizing co-evolving fitness predictors
 
@@ -40,34 +41,30 @@ class FitnessPredictorIsland(Island):
     Parameters
     ----------
     evolution_algorithm : EvolutionaryAlgorithm
-                          The desired algorithm to use in assessing the
-                          population
+        The desired algorithm to use in assessing the population
     generator : Generator
-                The generator class that returns an instance of a
-                chromosome
+        The generator class that returns an instance of a chromosome
     population_size : int
-                      The desired size of the population
-    predictor_population_size  : int
-                                 (Optional) the number of co-evolving fitness
-                                 predictors. Default is 16.
-    predictor_update_frequency  : int
-                                  (Optional) The number of generations between
-                                  updates to the main fitness function. Default
-                                  is 50.
-    predictor_size_ratio : float (0 - 1]
-                           (Optional) The fraction of the training data  that
-                           will be used by fitness predictors.  Default is 0.1.
-    predictor_computation_ratio : float [0 - 1)
-                                  (Optional) The fraction of total computation
-                                  that is devoted to evolution of fitness
-                                  predictors. Default is 0.1.
-    trainer_population_size  : int
-                               (Optional) the number of individuals used in
-                               training of fitness predictors. Default is 16.
-    trainer_update_frequency  : int
-                                (Optional) The number of generations between
-                                updates to the trainer population. Default
-                                is 50.
+        The desired size of the population
+    predictor_population_size  : int (Optional)
+        The number of co-evolving fitness predictors. Default is 16.
+    predictor_update_frequency  : int (Optional)
+        The number of generations between updates to the main fitness function.
+        Default is 50.
+    predictor_size_ratio : float (0 - 1] (Optional)
+        The fraction of the training data  that will be used by fitness
+        predictors.  Default is 0.1.
+    predictor_computation_ratio : float [0 - 1) (Optional)
+        The fraction of total computation that is devoted to evolution of
+        fitness predictors. Default is 0.1.
+    trainer_population_size  : int (Optional)
+        The number of individuals used in training of fitness predictors.
+        Default is 16.
+    trainer_update_frequency  : int (Optional)
+        The number of generations between updates to the trainer population.
+        Default is 50.
+    hall_of_fame : HallOfFame (Optional)
+        The hall of fame object to be used for storing best individuals
 
     Attributes
     ----------
@@ -89,8 +86,10 @@ class FitnessPredictorIsland(Island):
     def __init__(self, evolution_algorithm, generator, population_size,
                  predictor_population_size=16, predictor_update_frequency=50,
                  predictor_size_ratio=0.1, predictor_computation_ratio=0.1,
-                 trainer_population_size=16, trainer_update_frequency=50):
-        super().__init__(evolution_algorithm, generator, population_size)
+                 trainer_population_size=16, trainer_update_frequency=50,
+                 hall_of_fame=None):
+        super().__init__(evolution_algorithm, generator, population_size,
+                         hall_of_fame)
 
         self._fitness_function = self._ea.evaluation.fitness_function
         self._full_training_data = copy(self._fitness_function.training_data)
@@ -110,18 +109,12 @@ class FitnessPredictorIsland(Island):
         self._predictor_island = self._make_predictor_island()
         self._update_to_use_best_fitness_predictor()
 
-    def execute_generational_step(self):
-        """Executes a single generational step using the provided evolutionary
-        algorithm
+        self._hof_w_predicted_fitness = deepcopy(hall_of_fame)
+        self._potential_hof_members = {}
 
-        Returns
-        -------
-        population : list of Chromosomes
-                     The offspring generation yielded from the generational
-                     step
-        """
+    def _execute_generational_step(self):
         LOGGER.debug("I> " + str(self.generational_age + 1))
-        super().execute_generational_step()
+        super()._execute_generational_step()
 
         self._step_predictor_island_to_maintain_ratio()
         self._update_predictor_if_needed()
@@ -142,7 +135,7 @@ class FitnessPredictorIsland(Island):
                                                      self._predictor_size)
         predictor_island = Island(predictor_ea, generator,
                                   self._predictor_population_size)
-        predictor_island.execute_generational_step()
+        predictor_island._execute_generational_step()
         return predictor_island
 
     def _make_predictor_ea(self, index_generator):
@@ -159,13 +152,15 @@ class FitnessPredictorIsland(Island):
                < self._target_predictor_computation_ratio):
             LOGGER.debug("P> " +
                          str(self._predictor_island.generational_age + 1))
-            self._predictor_island.execute_generational_step()
+            self._predictor_island.evolve(1)
 
     def _update_predictor_if_needed(self):
         if self.generational_age % self._predictor_update_frequency == 0:
             LOGGER.debug("Updating fitness predictor")
             self._update_to_use_best_fitness_predictor()
             self._reset_fitness(self.population)
+            if self._hof_w_predicted_fitness is not None:
+                self._hof_w_predicted_fitness.clear()
             self.evaluate_population()
 
     def _update_trainer_if_needed(self):
@@ -176,7 +171,7 @@ class FitnessPredictorIsland(Island):
             self._predictor_island.evaluate_population()
 
     def _update_to_use_best_fitness_predictor(self):
-        best_predictor = self._predictor_island.best_individual()
+        best_predictor = self._predictor_island.get_best_individual()
         best_subset_data = \
             self._full_training_data[best_predictor.values]
         self._fitness_function.training_data = best_subset_data
@@ -217,3 +212,32 @@ class FitnessPredictorIsland(Island):
     def _reset_fitness(population):
         for indv in population:
             indv.fit_set = False
+
+    def _get_potential_hof_members(self):
+        self._hof_w_predicted_fitness.update(self.population)
+        potential_members = []
+        for indv_w_ped_fitness in self._hof_w_predicted_fitness:
+            indv_w_true_fitness = deepcopy(indv_w_ped_fitness)
+            indv_w_true_fitness.fitness = \
+                self._predictor_fitness_function.get_true_fitness_for_trainer(
+                        indv_w_true_fitness)
+            potential_members.append(indv_w_true_fitness)
+        return potential_members
+
+    def get_best_individual(self):
+        """Finds the individual with the lowest fitness in a population.
+
+        This assures  that the fitness is the true ftness value and not the
+        predicted fitness.
+
+        Returns
+        -------
+        best : Chromosome
+            The Chromosome with the lowest fitness value
+        """
+        best_indv = super().get_best_individual().copy()
+        best_indv.fitness = \
+            self._predictor_fitness_function.get_true_fitness_for_trainer(
+                    best_indv)
+        return best_indv
+

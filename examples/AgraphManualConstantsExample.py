@@ -14,7 +14,6 @@ from bingo.SymbolicRegression.ExplicitRegression import ExplicitRegression, \
 from bingo.Base.AgeFitnessEA import AgeFitnessEA
 from bingo.Base.Evaluation import Evaluation
 from bingo.Base.Island import Island
-from bingo.Base.ContinuousLocalOptimization import ContinuousLocalOptimization
 
 POP_SIZE = 128
 STACK_SIZE = 10
@@ -23,7 +22,7 @@ CROSSOVER_PROBABILITY = 0.4
 NUM_POINTS = 100
 START = -10
 STOP = 10
-ERROR_TOLERANCE = 1e-6
+ERROR_TOLERANCE = 0.05
 
 
 def init_x_vals(start, stop, num_points):
@@ -35,12 +34,15 @@ def equation_eval(x):
 
 
 def init_island():
-    np.random.seed(4)
+    np.random.seed(10)
     x = init_x_vals(START, STOP, NUM_POINTS)
     y = equation_eval(x)
     training_data = ExplicitTrainingData(x, y)
 
-    component_generator = ComponentGenerator(x.shape[1])
+    component_generator = ComponentGenerator(
+            x.shape[1],
+            automatic_constant_optimization=False,
+            numerical_constant_range=10)
     component_generator.add_operator("+")
     component_generator.add_operator("-")
     component_generator.add_operator("*")
@@ -51,8 +53,7 @@ def init_island():
     agraph_generator = AGraphGenerator(STACK_SIZE, component_generator)
 
     fitness = ExplicitRegression(training_data=training_data)
-    local_opt_fitness = ContinuousLocalOptimization(fitness, algorithm='lm')
-    evaluator = Evaluation(local_opt_fitness)
+    evaluator = Evaluation(fitness)
 
     ea = AgeFitnessEA(evaluator, agraph_generator, crossover,
                       mutation, MUTATION_PROBABILITY,

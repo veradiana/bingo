@@ -22,8 +22,7 @@ def run_one_max_problem():
     island = Island(ev_alg, generator, population_size=10)
     display_best_individual(island)
 
-    for _ in range(50):
-        island.execute_generational_step()
+    island.evolve(num_generations=50)
 
     display_best_individual(island)
 
@@ -62,9 +61,8 @@ class OneMaxFitnessFunction(FitnessFunction):
 
 
 def display_best_individual(island):
-    best_individual = island.best_individual()
-    print("Best individual: ", best_individual)
-    print("Best individual's fitness: ", best_individual.fitness)
+    print("Best individual: ", island.get_best_individual())
+    print("Best individual's fitness: ", island.get_best_fitness())
 
 
 if __name__ == "__main__":
