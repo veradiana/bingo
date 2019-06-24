@@ -63,8 +63,9 @@ CONSOLE_PRINT_MAP : dict {int: str}
 import logging
 import numpy as np
 
-from ..Equation import Equation
-from ...Base import ContinuousLocalOptimization
+from bingo.SymbolicRegression.Equation import Equation
+from bingo.Base.ContinuousLocalOptimization import ContinuousLocalOptimization
+from bingo.Base.ContinuousLocalOptimization import ChromosomeInterface
 
 try:
     from bingocpp.build import bingocpp as Backend
@@ -106,9 +107,9 @@ CONSOLE_PRINT_MAP = {2: "{} + {}",
                      7: "cos({})",
                      8: "exp({})",
                      9: "log({})",
-                     10: "({})^({})",
-                     11: "|{}|",
-                     12: "sqrt({})"}
+                    10: "({})^({})",
+                    11: "|{}|",
+                    12: "sqrt({})"}
 
 IS_ARITY_2_MAP = {0: False,
                   1: False,
@@ -153,7 +154,7 @@ OPERATOR_NAMES = {0: ["load", "x"],
                   12: ["square root", "sqrt"]}
 
 
-class AGraph(Equation, ContinuousLocalOptimization.ChromosomeInterface):
+class AGraph(Equation, ContinuousLocalOptimization, ChromosomeInterface):
     """Acyclic graph representation of an equation.
 
     Agraph is initialized with with empty command array and no constants.
