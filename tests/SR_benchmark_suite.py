@@ -72,7 +72,7 @@ def explicit_regression_benchmark():
     island = init_island()
     island.evolve_until_convergence(max_generations=500, min_generations=10, \
                                     fitness_threshold=ERROR_TOLERANCE)
-    print("* Best individual:", island.get_best_individual().get_console_string())
+    print("* Best individual:", island.get_best_individual().get_latex_string())
 
 def do_benchmarking():
     np.random.seed(15)
