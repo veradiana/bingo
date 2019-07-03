@@ -1,10 +1,9 @@
 # Ignoring some linting rules in tests
 # pylint: disable=redefined-outer-name
 # pylint: disable=missing-docstring
-import random
-
 import pytest
 import numpy as np
+import os
 
 from bingo.Base.MultipleValues import SinglePointCrossover, \
                                       SinglePointMutation, \
@@ -14,7 +13,13 @@ from bingo.Base.MuPlusLambdaEA import MuPlusLambda
 from bingo.Base.TournamentSelection import Tournament
 from bingo.Base.Evaluation import Evaluation
 from bingo.Base.FitnessFunction import FitnessFunction
-from bingo.Base.ParallelArchipelago import ParallelArchipelago
+
+try:
+    from bingo.Base.ParallelArchipelago import ParallelArchipelago, \
+        load_parallel_archipelago_from_file
+    PAR_ARCH_LOADED = True
+except ImportError:
+    PAR_ARCH_LOADED = False
 
 
 POP_SIZE = 5
@@ -102,34 +107,77 @@ def island(evol_alg):
     return Island(evol_alg, generator, POP_SIZE)
 
 
-def test_archipelago_generated_not_converged(island):
-    archipelago = ParallelArchipelago(island)
-    assert not archipelago._converged
+def test_mpi4py_could_be_imported():
+    import mpi4py
 
 
-def test_generational_step_executed(island):
-    random.seed(0)
-    archipelago = ParallelArchipelago(island)
-    archipelago.step_through_generations(1)
-
-
-def test_convergence_of_archipelago(one_island):
-    archipelago = ParallelArchipelago(one_island)
-    converged = archipelago.test_for_convergence(10)
-    assert converged
-
-
-def test_convergence_of_archipelago_unconverged(one_island):
-    archipelago = ParallelArchipelago(one_island)
-    converged = archipelago.test_for_convergence(0)
-    assert not converged
-
-
+@pytest.mark.skipif(not PAR_ARCH_LOADED,
+                    reason="ParallelArchipelago import failure. "
+                           "Likely due to an import error of mpi4py.")
 def test_best_individual_returned(one_island):
-    generator = MultipleValueChromosomeGenerator(generate_zero, VALUE_LIST_SIZE)
+    generator = MultipleValueChromosomeGenerator(generate_zero,
+                                                 VALUE_LIST_SIZE)
     best_indv = generator()
     one_island.load_population([best_indv], replace=False)
     archipelago = ParallelArchipelago(one_island)
-    assert archipelago.test_for_convergence(error_tol=ERROR_TOL)
     assert archipelago.get_best_individual().fitness == 0
-    
+
+
+@pytest.mark.skipif(not PAR_ARCH_LOADED,
+                    reason="ParallelArchipelago import failure. "
+                           "Likely due to an import error of mpi4py.")
+def test_best_fitness_returned(one_island):
+    generator = MultipleValueChromosomeGenerator(generate_zero,
+                                                 VALUE_LIST_SIZE)
+    best_indv = generator()
+    one_island.load_population([best_indv], replace=False)
+    archipelago = ParallelArchipelago(one_island)
+    assert archipelago.get_best_fitness() == 0
+
+
+@pytest.mark.skipif(not PAR_ARCH_LOADED,
+                    reason="ParallelArchipelago import failure. "
+                           "Likely due to an import error of mpi4py.")
+def test_potential_hof_members(mocker, one_island):
+    island_a = mocker.Mock(hall_of_fame=['a'])
+    archipelago = ParallelArchipelago(one_island)
+    archipelago._island = island_a
+    assert archipelago._get_potential_hof_members() == ['a']
+
+
+@pytest.mark.skipif(not PAR_ARCH_LOADED,
+                    reason="ParallelArchipelago import failure. "
+                           "Likely due to an import error of mpi4py.")
+@pytest.mark.parametrize("sync_freq", [1, 10])
+@pytest.mark.parametrize("non_blocking", [True, False])
+def test_fitness_eval_count(one_island, sync_freq, non_blocking):
+    num_islands = 1
+    archipelago = ParallelArchipelago(one_island, sync_frequency=sync_freq,
+                                      non_blocking=non_blocking)
+    assert archipelago.get_fitness_evaluation_count() == 0
+    archipelago.evolve(1)
+    if non_blocking:
+        expected_evals = num_islands * (POP_SIZE +
+                                              sync_freq * OFFSPRING_SIZE)
+    else:
+        expected_evals = num_islands * (POP_SIZE + OFFSPRING_SIZE)
+    assert archipelago.get_fitness_evaluation_count() == expected_evals
+
+
+@pytest.mark.skipif(not PAR_ARCH_LOADED,
+                    reason="ParallelArchipelago import failure. "
+                           "Likely due to an import error of mpi4py.")
+def test_dump_then_load(one_island):
+    archipelago = ParallelArchipelago(one_island)
+    archipelago.evolve(1)
+    file_name = "testing_pa_dump_and_load.pkl"
+    archipelago.dump_to_file(file_name)
+    archipelago.evolve(1)
+    archipelago = \
+        load_parallel_archipelago_from_file(file_name)
+
+    assert 1 == archipelago.generational_age
+    archipelago.evolve(1)
+    assert 2 == archipelago.generational_age
+
+    os.remove(file_name)
