@@ -6,15 +6,20 @@ function.
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
 import os
-import dill
-from ..Util.ArgumentValidation import argument_validation
+import logging
+from datetime import datetime
 
+import dill
+
+from ..Util.ArgumentValidation import argument_validation
+from ..Util.Log import INFO, DETAILED_INFO
+
+LOGGER = logging.getLogger(__name__)
 
 OptimizeResult = namedtuple('OptimizeResult', ['success', 'status', 'message',
                                                'ngen', 'fitness'])
 
 
-# TODO hof in attributes doc
 class EvolutionaryOptimizer(metaclass=ABCMeta):
     """ Fundamental bingo object that coordinates evolutionary optimization
 
@@ -22,10 +27,17 @@ class EvolutionaryOptimizer(metaclass=ABCMeta):
     this class is to house the evolve_until_convergence function. Classes which
     extend this one will have access to this function's capability.
 
+    Parameters
+    ----------
+    hall_of_fame : HallOfFame (optional)
+        The hall of fame object to be used for storing best individuals
+
     Attributes
     ----------
     generational_age: int
         The number of generations the optimizer has been evolved
+    hall_of_fame: HallOfFame
+        An object containing the best individuals seen in the optimization
     """
     def __init__(self, hall_of_fame=None):
         self.generational_age = 0
@@ -83,6 +95,8 @@ class EvolutionaryOptimizer(metaclass=ABCMeta):
         OptimizeResult :
             Object containing information about the result of the run
         """
+        start_time = datetime.now()
+        LOGGER.log(INFO, "Starting at generation: %d", self.generational_age)
         self._starting_age = self.generational_age
         self._update_best_fitness()
         self._update_checkpoints(checkpoint_base_name, num_checkpoints,
@@ -92,27 +106,37 @@ class EvolutionaryOptimizer(metaclass=ABCMeta):
             self.evolve(convergence_check_frequency)
             self._update_best_fitness()
             self._update_checkpoints(checkpoint_base_name, num_checkpoints)
+            self._log_optimization(start_time)
 
-        if self._convergence(fitness_threshold):
-            return self._make_optim_result(0, fitness_threshold)
-        if self._stagnation(stagnation_generations):
-            return self._make_optim_result(1, stagnation_generations)
-        if self._hit_max_evals(max_fitness_evaluations):
-            return self._make_optim_result(3, max_fitness_evaluations)
+        _exit, result = self._check_exit_criteria(fitness_threshold,
+                                                  stagnation_generations,
+                                                  max_fitness_evaluations)
+        if _exit:
+            self._log_exit(result)
+            return result
 
         while self.generational_age - self._starting_age < max_generations:
             self.evolve(convergence_check_frequency)
             self._update_best_fitness()
             self._update_checkpoints(checkpoint_base_name, num_checkpoints)
+            self._log_optimization(start_time)
 
-            if self._convergence(fitness_threshold):
-                return self._make_optim_result(0, fitness_threshold)
-            if self._stagnation(stagnation_generations):
-                return self._make_optim_result(1, stagnation_generations)
-            if self._hit_max_evals(max_fitness_evaluations):
-                return self._make_optim_result(3, max_fitness_evaluations)
+            _exit, result = self._check_exit_criteria(fitness_threshold,
+                                                      stagnation_generations,
+                                                      max_fitness_evaluations)
+            if _exit:
+                self._log_exit(result)
+                return result
 
-        return self._make_optim_result(2, max_generations)
+        result = self._make_optim_result(2, max_generations)
+        self._log_exit(result)
+        return result
+
+    def _log_optimization(self, start_time):
+        elapsed_time = datetime.now() - start_time
+        LOGGER.log(INFO, "Generation: %d \t Elapsed time: %s \t "
+                         "Best fitness: %le",
+                   self.generational_age, elapsed_time, self._best_fitness)
 
     def _update_best_fitness(self):
         last_best_fitness = self._best_fitness
@@ -132,7 +156,22 @@ class EvolutionaryOptimizer(metaclass=ABCMeta):
             if num_checkpoints is not None:
                 self._previous_checkpoints.append(checkpoint_file_name)
                 if len(self._previous_checkpoints) > num_checkpoints:
-                    os.remove(self._previous_checkpoints.pop(0))
+                    self._remove_stale_checkpoint()
+
+    def _remove_stale_checkpoint(self):
+        LOGGER.debug("Removing stale checkpoint file: %s",
+                     self._previous_checkpoints[0])
+        os.remove(self._previous_checkpoints.pop(0))
+
+    def _check_exit_criteria(self, fitness_threshold, stagnation_generations,
+                             max_fitness_evaluations):
+        if self._convergence(fitness_threshold):
+            return True, self._make_optim_result(0, fitness_threshold)
+        if self._stagnation(stagnation_generations):
+            return True, self._make_optim_result(1, stagnation_generations)
+        if self._hit_max_evals(max_fitness_evaluations):
+            return True, self._make_optim_result(3, max_fitness_evaluations)
+        return False, None
 
     def _convergence(self, threshold):
         return self._best_fitness <= threshold
@@ -167,21 +206,49 @@ class EvolutionaryOptimizer(metaclass=ABCMeta):
                       "({}) was exceeded. Total fitness ".format(aux_info) + \
                       "evals: {}".format(self.get_fitness_evaluation_count())
             success = False
-
         return OptimizeResult(success, status, message, ngen,
                               self._best_fitness)
 
-    def evolve(self, num_generations):
+    def _log_exit(self, result):
+        if result.success:
+            LOGGER.log(INFO, "Evolution successfully converged.")
+        else:
+            LOGGER.log(INFO, "Evolution unsuccessful.")
+        LOGGER.log(INFO, "  %s", result.message)
+        if self.hall_of_fame is not None:
+            LOGGER.log(INFO, "Hall of Fame:\n%s", self.hall_of_fame)
+
+    def evolve(self, num_generations, hall_of_fame_update=True,
+               suppress_logging=False):
         """The function responsible for generational evolution.
 
         Parameters
         ----------
         num_generations : int
             The number of generations to evolve
+        hall_of_fame_update : bool (optional)
+            Used to manually turn on or off the hall of fame update. Default
+            True.
+        suppress_logging : bool (optional)
+            Used to manually suppress the logging output of this function
         """
+        start_time = datetime.now()
         self._do_evolution(num_generations)
+        if hall_of_fame_update:
+            self.update_hall_of_fame()
+        if not suppress_logging:
+            self._log_evolution(start_time)
+
+    def _log_evolution(self, start_time):
+        elapsed_time = datetime.now() - start_time
+        LOGGER.log(DETAILED_INFO, "Evolution time %s\t fitness %.3le",
+                   elapsed_time, self.get_best_fitness())
+
+    def update_hall_of_fame(self):
+        """Manually update the hall of fame"""
         if self.hall_of_fame is not None:
             self.hall_of_fame.update(self._get_potential_hof_members())
+            LOGGER.debug("Hall of fame updated")
 
     @abstractmethod
     def _do_evolution(self, num_generations):
@@ -252,8 +319,10 @@ class EvolutionaryOptimizer(metaclass=ABCMeta):
         filename : str
             the name of the pickle file to dump
         """
+        LOGGER.log(INFO, "Saving checkpoint: %s", filename)
         with open(filename, "wb") as dump_file:
             dill.dump(self, dump_file, protocol=dill.HIGHEST_PROTOCOL)
+        LOGGER.log(DETAILED_INFO, "Saved successfully")
 
 
 def load_evolutionary_optimizer_from_file(filename):
@@ -269,6 +338,8 @@ def load_evolutionary_optimizer_from_file(filename):
     str :
         an evolutionary optimizer
     """
+    LOGGER.log(INFO, "Loading checkpoint file: %s", filename)
     with open(filename, "rb") as load_file:
         ev_opt = dill.load(load_file)
+    LOGGER.log(DETAILED_INFO, "Loaded successfully")
     return ev_opt
