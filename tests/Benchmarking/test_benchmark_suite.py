@@ -41,5 +41,5 @@ def test_benchmark_data_sets_nonempty(benchmark_suite):
     for benchmark in benchmark_suite.benchmarks:
         if benchmark._has_test_set == False:
                 assert benchmark.test_set.__len__() == 0
-        assert benchmark.train_set.__len__() + benchmark.test_set.__len__() == 1000
+        assert benchmark.train_set.__len__() + benchmark.test_set.__len__() == 100
  
